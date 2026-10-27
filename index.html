@@ -3,17 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' blob: data:; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' blob: data:;">
   <title>Inspetor de Montagem 3D</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f4f8; overflow: hidden; height: 100vh; width: 100vw; }
-    #canvas-container { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
+    #canvas-container { width: 100%; height: 100%; position: absolute; top: 0; left: 0; touch-action: none; }
 
-    /* BARRA SUPERIOR ORIGINAL */
     .top-header {
       position: absolute; top: 12px; left: 16px; right: 16px;
       display: flex; gap: 10px; align-items: center; justify-content: space-between;
-      pointer-events: none; z-index: 20;
+      pointer-events: none; z-index: 20; flex-wrap: wrap;
     }
     .brand-box {
       display: flex; align-items: center; gap: 8px; pointer-events: auto;
@@ -28,8 +28,8 @@
     .brand-title { font-size: 13px; font-weight: 700; color: #0f172a; line-height: 1.2; }
     .brand-sub { font-size: 11px; font-weight: 600; color: #64748b; font-family: monospace; }
 
-    .nav-actions { display: flex; gap: 8px; align-items: center; pointer-events: auto; }
-    
+    .nav-actions { display: flex; gap: 8px; align-items: center; pointer-events: auto; flex-wrap: wrap; }
+
     .select-filter {
       background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px;
       padding: 8px 12px; font-size: 13px; font-weight: 600; color: #1e293b;
@@ -58,9 +58,8 @@
     .zoom-btn:hover { background: #f1f5f9; }
     .zoom-btn:first-child { border-right: 1px solid #cbd5e1; }
 
-    /* GAVETA LATERAL DE PEÇAS */
     #drawer-pieces {
-      position: absolute; top: 64px; right: 16px; bottom: 20px; width: 320px;
+      position: absolute; top: 64px; right: 16px; bottom: 20px; width: 320px; max-width: calc(100vw - 32px);
       background: #ffffff; border-radius: 12px; box-shadow: 0 12px 30px -6px rgba(0,0,0,0.15);
       border: 1px solid #e2e8f0; display: none; flex-direction: column; z-index: 30; overflow: hidden;
     }
@@ -72,7 +71,7 @@
     .search-box { padding: 8px 16px; border-bottom: 1px solid #e2e8f0; }
     .search-input {
       width: 100%; padding: 6px 10px; border-radius: 6px; border: 1px solid #cbd5e1;
-      font-size: 12px; outline: none;
+      font-size: 12px; outline: none; user-select: text; -webkit-user-select: text;
     }
     .pieces-list { flex: 1; overflow-y: auto; padding: 6px; }
     .piece-item {
@@ -83,9 +82,8 @@
     .piece-item:hover { background: #f1f5f9; color: #0f172a; }
     .piece-item.active { background: #e6fcf5; color: #059669; font-weight: 700; }
 
-    /* CARD DE DETALHES INFERIOR */
     #info-card {
-      position: absolute; bottom: 20px; right: 20px; width: 340px;
+      position: absolute; bottom: 20px; right: 20px; width: 340px; max-width: calc(100vw - 40px);
       background: #ffffff; border-radius: 14px; box-shadow: 0 12px 30px -6px rgba(0,0,0,0.15);
       border: 1px solid #e2e8f0; padding: 16px; z-index: 25; display: none; flex-direction: column; gap: 10px;
     }
@@ -118,7 +116,6 @@
     }
     .btn-action-gray:hover { background: #e2e8f0; }
 
-    /* MODAL QR CODE */
     #qr-modal {
       display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6);
       align-items: center; justify-content: center; z-index: 200;
@@ -137,6 +134,14 @@
     }
     .spinner { width: 36px; height: 36px; border: 4px solid #cbd5e1; border-top-color: #0f172a; border-radius: 50%; animation: spin 0.8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media print {
+      body * { visibility: hidden; }
+      #qr-modal, #qr-modal * { visibility: visible; }
+      #qr-modal { position: fixed; inset: 0; background: #ffffff; display: flex !important; align-items: center; justify-content: center; }
+      .qr-window { box-shadow: none; border: 2px solid #000000; width: 100%; max-width: 300px; }
+      .no-print { display: none !important; }
+    }
   </style>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -147,11 +152,10 @@
 </head>
 <body>
   <div id="loading-overlay">
-    <div class="spinner"></div>
+    <div class="spinner" id="loading-spinner"></div>
     <div id="loading-txt">A carregar modelo...</div>
   </div>
 
-  <!-- BARRA DE FERRAMENTAS COMPLETA -->
   <div class="top-header">
     <div class="brand-box">
       <div class="brand-badge">ACM</div>
@@ -188,7 +192,6 @@
 
   <div id="canvas-container"></div>
 
-  <!-- GAVETA LATERAL DE PEÇAS COM PESQUISA -->
   <div id="drawer-pieces">
     <div class="drawer-header">
       <span class="drawer-title">Lista de Peças</span>
@@ -200,7 +203,6 @@
     <div class="pieces-list" id="pieces-container"></div>
   </div>
 
-  <!-- CARD DE INFORMAÇÕES DA PEÇA SELECIONADA -->
   <div id="info-card">
     <div class="card-top">
       <div class="badge-num" id="card-badge">#--</div>
@@ -225,13 +227,12 @@
     </div>
   </div>
 
-  <!-- MODAL DO QR CODE -->
   <div id="qr-modal" onclick="if(event.target===this)this.style.display='none'">
     <div class="qr-window">
       <h3 style="font-size:16px;color:#0f172a;font-weight:700" id="qr-title">Etiqueta da Peça</h3>
-      <p style="font-size:12px;color:#64748b" id="qr-sub">Leitura de montagem em campo</p>
+      <p style="font-size:13px;color:#0f172a;font-weight:800" id="qr-sub">-- x -- x -- mm</p>
       <div id="qr-box"></div>
-      <button class="btn-tool btn-dark" style="justify-content:center;" onclick="window.print()">Imprimir Etiqueta</button>
+      <button class="btn-tool btn-dark no-print" style="justify-content:center;" onclick="window.print()">Imprimir Etiqueta</button>
     </div>
   </div>
 
@@ -240,15 +241,21 @@
     let modelRoot = null;
     let pieces = [];
     let selectedMesh = null;
+    let highlightedMeshes = new Set();
     let origMaterials = new Map();
     let currentModelUrl = "cobertura-do-predio.glb";
+    let globalScaleFactor = 1;
+    let qrInstance = null;
+    let activePointerId = null;
+    let pointerDownPos = { x: 0, y: 0 };
 
     const highlightMat = new THREE.MeshStandardMaterial({
       color: 0x00e676,
       emissive: 0x009e4f,
       emissiveIntensity: 0.55,
       roughness: 0.25,
-      metalness: 0.1
+      metalness: 0.1,
+      side: THREE.DoubleSide
     });
 
     function init() {
@@ -256,7 +263,7 @@
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0xf1f5f9);
 
-      camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 500000);
       camera.position.set(22, 16, 24);
 
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
@@ -268,7 +275,9 @@
       container.appendChild(renderer.domElement);
 
       const pmrem = new THREE.PMREMGenerator(renderer);
-      scene.environment = pmrem.fromScene(new THREE.RoomEnvironment(), 0.04).texture;
+      const envScene = new THREE.RoomEnvironment();
+      scene.environment = pmrem.fromScene(envScene, 0.04).texture;
+      pmrem.dispose();
 
       controls = new THREE.OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
@@ -285,9 +294,32 @@
 
       window.addEventListener('resize', onWindowResize);
       renderer.domElement.addEventListener('pointerdown', onPointerDown);
+      renderer.domElement.addEventListener('pointerup', onPointerUp);
 
       checkUrlParams();
       animate();
+    }
+
+    function sanitizeModelUrl(url) {
+      if (!url) return null;
+      try {
+        const parsed = new URL(url, window.location.href);
+        if (parsed.origin === window.location.origin && /\.(glb|gltf)$/i.test(parsed.pathname)) {
+          return parsed.pathname.split('/').pop();
+        }
+      } catch (e) {
+        return null;
+      }
+      return null;
+    }
+
+    function safeDecode(str) {
+      if (!str) return "";
+      try {
+        return decodeURIComponent(str);
+      } catch (e) {
+        return str;
+      }
     }
 
     function checkUrlParams() {
@@ -295,66 +327,233 @@
       const m = p.get('model');
       const part = p.get('part');
       if (m) {
-        currentModelUrl = m;
-        document.getElementById('model-label').innerText = m.split('/').pop();
+        const sanitized = sanitizeModelUrl(m);
+        if (sanitized) {
+          currentModelUrl = sanitized;
+          document.getElementById('model-label').textContent = sanitized;
+        }
       }
-      loadModelFromUrl(currentModelUrl, part);
+      loadModelFromUrl(currentModelUrl, safeDecode(part));
+    }
+
+    function showErrorState(msg) {
+      const overlay = document.getElementById('loading-overlay');
+      document.getElementById('loading-spinner').style.display = 'none';
+      document.getElementById('loading-txt').textContent = msg;
+      setTimeout(() => { overlay.style.display = 'none'; }, 2500);
     }
 
     function loadModelFromUrl(url, targetPartName) {
-      document.getElementById('loading-overlay').style.display = 'flex';
+      const overlay = document.getElementById('loading-overlay');
+      document.getElementById('loading-spinner').style.display = 'block';
+      document.getElementById('loading-txt').textContent = 'A carregar modelo...';
+      overlay.style.display = 'flex';
+
       new THREE.GLTFLoader().load(url, (gltf) => {
         setupLoadedModel(gltf.scene);
-        if (targetPartName) selectPieceByName(decodeURIComponent(targetPartName));
-        document.getElementById('loading-overlay').style.display = 'none';
+        if (targetPartName) selectPieceByName(targetPartName);
+        overlay.style.display = 'none';
       }, undefined, () => {
-        document.getElementById('loading-overlay').style.display = 'none';
+        showErrorState('Aguardando seleção de arquivo (.glb)');
       });
     }
 
     function loadLocalFile(e) {
       const file = e.target.files[0];
       if (!file) return;
-      document.getElementById('model-label').innerText = file.name;
-      document.getElementById('loading-overlay').style.display = 'flex';
+      currentModelUrl = file.name;
+      document.getElementById('model-label').textContent = file.name;
+
+      const overlay = document.getElementById('loading-overlay');
+      document.getElementById('loading-spinner').style.display = 'block';
+      document.getElementById('loading-txt').textContent = 'A processar arquivo...';
+      overlay.style.display = 'flex';
+
       const reader = new FileReader();
       reader.onload = (ev) => {
         new THREE.GLTFLoader().parse(ev.target.result, '', (gltf) => {
           setupLoadedModel(gltf.scene);
-          document.getElementById('loading-overlay').style.display = 'none';
+          overlay.style.display = 'none';
+          e.target.value = '';
+        }, () => {
+          showErrorState('Erro ao ler arquivo GLB.');
+          e.target.value = '';
         });
       };
       reader.readAsArrayBuffer(file);
     }
 
+    function disposeMaterial(mat) {
+      if (!mat || mat === highlightMat) return;
+      Object.keys(mat).forEach(key => {
+        if (mat[key] && mat[key].isTexture) {
+          mat[key].dispose();
+        }
+      });
+      mat.dispose();
+    }
+
+    function disposeHierarchy(obj) {
+      obj.traverse((child) => {
+        if (child.isMesh || child.isLineSegments) {
+          if (child.geometry) child.geometry.dispose();
+          if (child.material) {
+            if (Array.isArray(child.material)) {
+              child.material.forEach(disposeMaterial);
+            } else {
+              disposeMaterial(child.material);
+            }
+          }
+        }
+      });
+    }
+
+    function resolvePieceName(mesh, index) {
+      let curr = mesh;
+      while (curr && curr !== modelRoot) {
+        if (curr.name && !/^(mesh|node|object|primitive|group|scene)[_\-\s]*\d*$/i.test(curr.name)) {
+          return curr.name;
+        }
+        curr = curr.parent;
+      }
+      return mesh.name || `Peça_${index}`;
+    }
+
+    function computeOrientedDimensions(posAttr, scaleVec) {
+      const count = posAttr.count;
+      if (count < 3) return [0, 0, 0];
+
+      const sx = scaleVec.x, sy = scaleVec.y, sz = scaleVec.z;
+      const vA = new THREE.Vector3(), vB = new THREE.Vector3(), vC = new THREE.Vector3();
+      const cb = new THREE.Vector3(), ab = new THREE.Vector3();
+
+      let bestNormal = new THREE.Vector3(0, 0, 1);
+      let bestEdgeDir = new THREE.Vector3(1, 0, 0);
+      let maxArea = -1;
+
+      const step = Math.max(1, Math.floor((count / 3) / 150)) * 3;
+      for (let i = 0; i <= count - 3; i += step) {
+        vA.set(posAttr.getX(i) * sx, posAttr.getY(i) * sy, posAttr.getZ(i) * sz);
+        vB.set(posAttr.getX(i+1) * sx, posAttr.getY(i+1) * sy, posAttr.getZ(i+1) * sz);
+        vC.set(posAttr.getX(i+2) * sx, posAttr.getY(i+2) * sy, posAttr.getZ(i+2) * sz);
+
+        cb.subVectors(vC, vB);
+        ab.subVectors(vA, vB);
+        cb.cross(ab);
+        const areaSq = cb.lengthSq();
+        if (areaSq > maxArea && areaSq > 1e-12) {
+          maxArea = areaSq;
+          bestNormal.copy(cb).normalize();
+          bestEdgeDir.subVectors(vB, vA).normalize();
+        }
+      }
+
+      const axisZ = bestNormal;
+      const axisX = bestEdgeDir;
+      const axisY = new THREE.Vector3().crossVectors(axisZ, axisX).normalize();
+
+      let minX = Infinity, maxX = -Infinity;
+      let minY = Infinity, maxY = -Infinity;
+      let minZ = Infinity, maxZ = -Infinity;
+
+      for (let i = 0; i < count; i++) {
+        vA.set(posAttr.getX(i) * sx, posAttr.getY(i) * sy, posAttr.getZ(i) * sz);
+        const px = vA.dot(axisX);
+        const py = vA.dot(axisY);
+        const pz = vA.dot(axisZ);
+        if (px < minX) minX = px; if (px > maxX) maxX = px;
+        if (py < minY) minY = py; if (py > maxY) maxY = py;
+        if (pz < minZ) minZ = pz; if (pz > maxZ) maxZ = pz;
+      }
+
+      return [maxX - minX, maxY - minY, maxZ - minZ];
+    }
+
     function calculateRealPieceDimensions(mesh) {
-      if (!mesh.geometry) return "-- x -- x -- mm";
+      if (!mesh || !mesh.geometry || !mesh.geometry.attributes || !mesh.geometry.attributes.position) {
+        return "-- x -- x -- mm";
+      }
 
-      const geom = mesh.geometry.clone();
-      geom.applyMatrix4(mesh.matrixWorld);
-      geom.computeBoundingBox();
+      const displayName = mesh.userData.displayName || mesh.name || "";
+      const match = displayName.match(/(\d+[\.,]?\d*)\s*[xX*]\s*(\d+[\.,]?\d*)(?:\s*[xX*]\s*(\d+[\.,]?\d*))?/);
+      if (match && match[1] && match[2]) {
+        const v1 = parseFloat(match[1].replace(',', '.'));
+        const v2 = parseFloat(match[2].replace(',', '.'));
+        const v3 = match[3] ? parseFloat(match[3].replace(',', '.')) : 3.0;
+        const arr = [v1, v2, v3].sort((a, b) => b - a);
+        return `${Math.round(arr[0])} x ${Math.round(arr[1])} x ${arr[2] < 10 ? arr[2].toFixed(1) : Math.round(arr[2])} mm`;
+      }
+
+      const geom = mesh.geometry;
+      if (!geom.boundingBox) geom.computeBoundingBox();
       const b = geom.boundingBox;
+      if (!b) return "-- x -- x -- mm";
 
-      let dx = Math.abs(b.max.x - b.min.x);
-      let dy = Math.abs(b.max.y - b.min.y);
-      let dz = Math.abs(b.max.z - b.min.z);
+      const worldScale = new THREE.Vector3();
+      mesh.matrixWorld.decompose(new THREE.Vector3(), new THREE.Quaternion(), worldScale);
+      const sx = Math.abs(worldScale.x) || 1;
+      const sy = Math.abs(worldScale.y) || 1;
+      const sz = Math.abs(worldScale.z) || 1;
 
-      let scaleFactor = (dx > 50 || dy > 50 || dz > 50) ? 1 : 1000;
-      let dims = [dx * scaleFactor, dy * scaleFactor, dz * scaleFactor].sort((a, b) => b - a);
+      const dx = Math.abs(b.max.x - b.min.x) * sx;
+      const dy = Math.abs(b.max.y - b.min.y) * sy;
+      const dz = Math.abs(b.max.z - b.min.z) * sz;
 
-      return `${Math.round(dims[0])} x ${Math.round(dims[1])} x ${dims[2] < 10 ? dims[2].toFixed(1) : Math.round(dims[2])} mm`;
+      let dims = [dx * globalScaleFactor, dy * globalScaleFactor, dz * globalScaleFactor].sort((a, b) => b - a);
+      if (dims[0] === 0) return "-- x -- x -- mm";
+
+      // Se a menor dimensão do AABB for maior que 15mm, a chapa pode estar inclinada nos vértices locais
+      if (dims[2] > 15) {
+        const obb = computeOrientedDimensions(geom.attributes.position, new THREE.Vector3(sx, sy, sz));
+        const obbDims = [obb[0] * globalScaleFactor, obb[1] * globalScaleFactor, obb[2] * globalScaleFactor].sort((a, b) => b - a);
+        if (obbDims[0] > 0 && obbDims[2] < dims[2]) {
+          dims = obbDims;
+        }
+      }
+
+      let espessura = dims[2];
+      if (espessura < 0.5) espessura = 3.0;
+
+      return `${Math.round(dims[0])} x ${Math.round(dims[1])} x ${espessura < 10 ? espessura.toFixed(1) : Math.round(espessura)} mm`;
     }
 
     function setupLoadedModel(root) {
-      if (modelRoot) scene.remove(modelRoot);
+      clearSelection();
+      if (modelRoot) {
+        scene.remove(modelRoot);
+        disposeHierarchy(modelRoot);
+      }
       modelRoot = root;
       pieces = [];
+      highlightedMeshes.clear();
       origMaterials.clear();
+
+      scene.add(modelRoot);
+      modelRoot.updateMatrixWorld(true);
+
+      const modelBox = new THREE.Box3().setFromObject(modelRoot);
+      const modelSize = modelBox.getSize(new THREE.Vector3());
+      const maxExtent = Math.max(modelSize.x, modelSize.y, modelSize.z);
+      globalScaleFactor = maxExtent > 100 ? 1 : 1000;
+
+      const usedNames = new Map();
+      let idxCounter = 1;
 
       modelRoot.traverse((obj) => {
         if (obj.isMesh) {
           pieces.push(obj);
-          origMaterials.set(obj, obj.material);
+          origMaterials.set(obj, Array.isArray(obj.material) ? [...obj.material] : obj.material);
+
+          let baseName = resolvePieceName(obj, idxCounter++);
+          if (usedNames.has(baseName)) {
+            const count = usedNames.get(baseName) + 1;
+            usedNames.set(baseName, count);
+            baseName = `${baseName}_${count}`;
+          } else {
+            usedNames.set(baseName, 1);
+          }
+          obj.userData.displayName = baseName;
+          obj.userData.dims = calculateRealPieceDimensions(obj);
 
           const edges = new THREE.EdgesGeometry(obj.geometry, 30);
           const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x1e293b, linewidth: 1 }));
@@ -362,9 +561,7 @@
         }
       });
 
-      document.getElementById('btn-count-label').innerText = `Peças (${pieces.length})`;
-      renderPieceList();
-      scene.add(modelRoot);
+      filterPieces();
       resetCamera();
     }
 
@@ -373,16 +570,25 @@
       const container = document.getElementById('pieces-container');
       container.innerHTML = "";
 
+      let visibleCount = 0;
       pieces.forEach((p, idx) => {
-        const name = p.name || `Peça #${idx + 1}`;
+        if (!p.visible) return;
+        visibleCount++;
+        const name = p.userData.displayName || `Peça #${idx + 1}`;
         if (filter && !name.toLowerCase().includes(filter)) return;
 
         const item = document.createElement('div');
         item.className = `piece-item ${selectedMesh === p ? 'active' : ''}`;
-        item.innerHTML = `<span>${idx + 1}. ${name}</span>`;
+
+        const label = document.createElement('span');
+        label.textContent = `${idx + 1}. ${name}`;
+        item.appendChild(label);
+
         item.onclick = () => { selectPiece(p); focusCurrentPiece(); };
         container.appendChild(item);
       });
+
+      document.getElementById('btn-count-label').textContent = `Peças (${visibleCount})`;
     }
 
     function toggleDrawer() {
@@ -390,49 +596,101 @@
       d.style.display = d.style.display === 'flex' ? 'none' : 'flex';
     }
 
+    function applyHighlightMaterial(mesh) {
+      if (Array.isArray(mesh.material)) {
+        mesh.material = mesh.material.map(() => highlightMat);
+      } else {
+        mesh.material = highlightMat;
+      }
+    }
+
     function selectPiece(mesh) {
       clearSelection();
       selectedMesh = mesh;
-      origMaterials.set(mesh, mesh.material);
-      mesh.material = highlightMat;
+      highlightedMeshes.add(mesh);
+      applyHighlightMaterial(mesh);
 
       const idx = pieces.indexOf(mesh) + 1;
-      document.getElementById('card-badge').innerText = `#${idx}`;
-      document.getElementById('card-title').innerText = mesh.name || `Peça #${idx}`;
-      document.getElementById('card-dims').innerText = calculateRealPieceDimensions(mesh);
+      const name = mesh.userData.displayName || `Peça #${idx}`;
+      const dims = mesh.userData.dims || calculateRealPieceDimensions(mesh);
+
+      document.getElementById('card-badge').textContent = `#${idx}`;
+      document.getElementById('card-title').textContent = name;
+      document.getElementById('card-dims').textContent = dims;
       document.getElementById('info-card').style.display = 'flex';
       renderPieceList();
     }
 
     function selectPieceByName(name) {
-      const p = pieces.find(m => m.name.toLowerCase() === name.toLowerCase() || m.name.includes(name));
+      const target = name.toLowerCase().trim();
+      const p = pieces.find(m => (m.userData.displayName || "").toLowerCase() === target) ||
+                pieces.find(m => (m.name || "").toLowerCase() === target) ||
+                pieces.find(m => (m.userData.displayName || "").toLowerCase().includes(target));
       if (p) {
+        p.visible = true;
         selectPiece(p);
         focusCurrentPiece();
       }
     }
 
     function clearSelection() {
-      if (selectedMesh) {
-        selectedMesh.material = origMaterials.get(selectedMesh);
-        selectedMesh = null;
-      }
+      highlightedMeshes.forEach((mesh) => {
+        if (origMaterials.has(mesh)) {
+          const orig = origMaterials.get(mesh);
+          mesh.material = Array.isArray(orig) ? [...orig] : orig;
+        }
+      });
+      highlightedMeshes.clear();
+      selectedMesh = null;
+
       document.getElementById('info-card').style.display = 'none';
       renderPieceList();
     }
 
     function selectSimilarPieces() {
       if (!selectedMesh) return;
-      const targetDims = document.getElementById('card-dims').innerText;
+      const targetDims = selectedMesh.userData.dims;
       pieces.forEach((p) => {
-        if (calculateRealPieceDimensions(p) === targetDims) {
-          p.material = highlightMat;
+        if (p.visible && p.userData.dims === targetDims) {
+          applyHighlightMaterial(p);
+          highlightedMeshes.add(p);
         }
       });
     }
 
+    function filterPieces() {
+      const type = document.getElementById('filter-type').value;
+      pieces.forEach(p => {
+        const n = (p.userData.displayName || "").toLowerCase();
+        if (type === 'all') {
+          p.visible = true;
+        } else if (type === 'testeira') {
+          p.visible = n.includes('testeira');
+        } else if (type === 'forro') {
+          p.visible = n.includes('forro');
+        }
+      });
+      if (selectedMesh && !selectedMesh.visible) {
+        clearSelection();
+      } else {
+        renderPieceList();
+      }
+    }
+
     function onPointerDown(e) {
-      if (e.button !== 0) return;
+      if (e.button !== 0 && e.pointerType === 'mouse') return;
+      activePointerId = e.pointerId;
+      pointerDownPos.x = e.clientX;
+      pointerDownPos.y = e.clientY;
+    }
+
+    function onPointerUp(e) {
+      if (e.pointerId !== activePointerId) return;
+      activePointerId = null;
+
+      const dist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
+      if (dist > 6) return;
+
       const rect = renderer.domElement.getBoundingClientRect();
       const mouse = new THREE.Vector2(
         ((e.clientX - rect.left) / rect.width) * 2 - 1,
@@ -440,7 +698,8 @@
       );
       const ray = new THREE.Raycaster();
       ray.setFromCamera(mouse, camera);
-      const hits = ray.intersectObjects(pieces, false);
+      const visiblePieces = pieces.filter(p => p.visible);
+      const hits = ray.intersectObjects(visiblePieces, false);
       if (hits.length > 0) {
         selectPiece(hits[0].object);
       }
@@ -451,7 +710,7 @@
       const box = new THREE.Box3().setFromObject(selectedMesh);
       const center = box.getCenter(new THREE.Vector3());
       const size = box.getSize(new THREE.Vector3());
-      const maxDim = Math.max(size.x, size.y, size.z);
+      const maxDim = Math.max(size.x, size.y, size.z, 0.1);
 
       const offset = new THREE.Vector3(1, 0.8, 1).normalize().multiplyScalar(maxDim * 2.2);
       camera.position.copy(center).add(offset);
@@ -464,33 +723,52 @@
       const box = new THREE.Box3().setFromObject(modelRoot);
       const center = box.getCenter(new THREE.Vector3());
       const size = box.getSize(new THREE.Vector3());
-      const maxDim = Math.max(size.x, size.y, size.z);
+      const maxDim = Math.max(size.x, size.y, size.z, 1);
+
+      camera.near = Math.max(0.01, maxDim / 10000);
+      camera.far = Math.max(5000, maxDim * 100);
+      camera.updateProjectionMatrix();
 
       camera.position.set(center.x + maxDim * 1.3, center.y + maxDim * 0.9, center.z + maxDim * 1.3);
       controls.target.copy(center);
       controls.update();
     }
 
-    function zoomIn() { camera.position.multiplyScalar(0.85); controls.update(); }
-    function zoomOut() { camera.position.multiplyScalar(1.15); controls.update(); }
+    function zoomIn() {
+      const offset = camera.position.clone().sub(controls.target).multiplyScalar(0.82);
+      camera.position.copy(controls.target).add(offset);
+      controls.update();
+    }
+
+    function zoomOut() {
+      const offset = camera.position.clone().sub(controls.target).multiplyScalar(1.22);
+      camera.position.copy(controls.target).add(offset);
+      controls.update();
+    }
 
     function openQrModal() {
       if (!selectedMesh) return;
       const modal = document.getElementById('qr-modal');
       const box = document.getElementById('qr-box');
-      box.innerHTML = "";
 
+      const partName = selectedMesh.userData.displayName || selectedMesh.name;
       const baseUrl = window.location.origin + window.location.pathname;
-      const directUrl = `${baseUrl}?model=${encodeURIComponent(currentModelUrl)}&part=${encodeURIComponent(selectedMesh.name)}`;
+      const directUrl = `${baseUrl}?model=${encodeURIComponent(currentModelUrl)}&part=${encodeURIComponent(partName)}`;
 
-      new QRCode(box, {
-        text: directUrl,
-        width: 180,
-        height: 180
-      });
+      if (!qrInstance) {
+        box.innerHTML = "";
+        qrInstance = new QRCode(box, {
+          text: directUrl,
+          width: 180,
+          height: 180
+        });
+      } else {
+        qrInstance.clear();
+        qrInstance.makeCode(directUrl);
+      }
 
-      document.getElementById('qr-title').innerText = selectedMesh.name;
-      document.getElementById('qr-sub').innerText = document.getElementById('card-dims').innerText;
+      document.getElementById('qr-title').textContent = partName;
+      document.getElementById('qr-sub').textContent = selectedMesh.userData.dims || document.getElementById('card-dims').textContent;
       modal.style.display = 'flex';
     }
 
