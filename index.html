@@ -2,1107 +2,334 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Visualizador Técnico ACM 3D - Inspetor de Peças</title>
-  <!-- Tailwind CSS -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Font Awesome Icons -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <!-- Three.js + OrbitControls + Loaders -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Inspetor de Montagem ACM 3D</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #eef2f6; overflow: hidden; height: 100vh; width: 100vw; }
+    #canvas-container { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
+    
+    .top-bar {
+      position: absolute; top: 12px; left: 12px; right: 12px;
+      display: flex; gap: 8px; align-items: center; justify-content: space-between;
+      pointer-events: none; z-index: 10;
+    }
+    .left-controls, .right-controls { display: flex; gap: 8px; pointer-events: auto; }
+    
+    .btn {
+      background: #ffffff; border: 1px solid #d1d5db; color: #1f2937;
+      padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 600;
+      cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      transition: all 0.15s ease;
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn-primary { background: #0f172a; color: #ffffff; border-color: #0f172a; }
+    
+    #loading-overlay {
+      position: absolute; inset: 0; background: rgba(255,255,255,0.9);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      z-index: 100; gap: 12px; font-weight: 600; color: #1e293b;
+    }
+    .spinner { width: 36px; height: 36px; border: 4px solid #cbd5e1; border-top-color: #0f172a; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #info-card {
+      position: absolute; bottom: 16px; right: 16px; width: 320px;
+      background: #ffffff; border-radius: 12px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.15);
+      border: 1px solid #e2e8f0; padding: 14px; z-index: 20; display: none; flex-direction: column; gap: 10px;
+    }
+    .card-header { display: flex; justify-content: space-between; align-items: flex-start; }
+    .badge { background: #00e676; color: #064e3b; font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 6px; }
+    .piece-title { font-size: 14px; font-weight: 700; color: #0f172a; word-break: break-word; }
+    .dim-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; }
+    .dim-label { font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; }
+    .dim-val { font-size: 15px; font-weight: 800; color: #0f172a; margin-top: 2px; }
+    .card-actions { display: flex; gap: 6px; }
+    .btn-focus { flex: 2; background: #059669; color: #fff; justify-content: center; border: none; }
+    .btn-qr { flex: 1; background: #1e293b; color: #fff; justify-content: center; border: none; }
+
+    #qr-modal {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+      align-items: center; justify-content: center; z-index: 200;
+    }
+    .qr-box { background: #fff; padding: 20px; border-radius: 12px; width: 320px; text-align: center; display: flex; flex-direction: column; gap: 12px; }
+    #qr-img { margin: 0 auto; display: block; border: 1px solid #e2e8f0; border-radius: 8px; }
+  </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
-  <!-- QRCode.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-
-  <style>
-    body, html {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      touch-action: none;
-    }
-    #viewport-container {
-      width: 100%;
-      height: 100%;
-      position: absolute;
-      top: 0;
-      left: 0;
-      z-index: 1;
-      background: radial-gradient(circle at 50% 30%, #f8fafc 0%, #cbd5e1 100%);
-    }
-    canvas {
-      display: block;
-      width: 100%;
-      height: 100%;
-      outline: none;
-    }
-    .custom-scroll::-webkit-scrollbar {
-      width: 5px;
-      height: 5px;
-    }
-    .custom-scroll::-webkit-scrollbar-thumb {
-      background: #cbd5e1;
-      border-radius: 4px;
-    }
-  </style>
 </head>
-<body class="bg-slate-100 text-slate-800 antialiased select-none">
+<body>
+  <div id="loading-overlay">
+    <div class="spinner"></div>
+    <div id="loading-txt">Carregando visualizador...</div>
+  </div>
 
-  <!-- 3D Viewport -->
-  <div id="viewport-container"></div>
+  <div class="top-bar">
+    <div class="left-controls">
+      <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">Abrir Arquivo</button>
+      <input type="file" id="file-input" accept=".glb,.gltf" style="display:none" onchange="loadLocalFile(event)">
+      <button class="btn" onclick="resetCamera()">Enquadrar</button>
+    </div>
+  </div>
 
-  <!-- Header / Barra Superior -->
-  <header class="fixed top-0 left-0 right-0 z-20 flex items-center justify-between px-3 py-2 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-sm">
-    <div class="flex items-center gap-2">
-      <div class="w-8 h-8 rounded-lg bg-orange-600 flex items-center justify-center text-white shadow-sm font-bold text-sm tracking-wider">
-        ACM
-      </div>
+  <div id="canvas-container"></div>
+
+  <div id="info-card">
+    <div class="card-header">
       <div>
-        <h1 class="text-xs sm:text-sm font-bold text-slate-900 leading-tight">Inspetor de Montagem 3D</h1>
-        <p class="text-[10px] sm:text-xs text-slate-500 font-mono" id="project-tag">Carregue seu arquivo</p>
+        <span class="badge" id="card-badge">PEÇA</span>
+        <div class="piece-title" id="card-title">Nome da Peça</div>
       </div>
+      <button onclick="clearSelection()" style="background:none;border:none;cursor:pointer;font-size:16px;color:#94a3b8">✕</button>
     </div>
-
-    <!-- Controles Rápidos -->
-    <div class="flex items-center gap-1.5 sm:gap-2">
-      <!-- Filtro por Categoria -->
-      <div class="relative hidden md:block">
-        <select id="category-filter" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium py-1.5 px-2.5 pr-6 rounded-lg border border-slate-300 focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer appearance-none">
-          <option value="all">Todas as Peças</option>
-          <option value="FORRO">Forros de ACM</option>
-          <option value="JUNTA">Juntas / Frisos</option>
-          <option value="TESTEIRA">Testeiras</option>
-          <option value="OUTROS">Estrutura / Outros</option>
-        </select>
-        <i class="fa-solid fa-filter absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-slate-400 pointer-events-none"></i>
-      </div>
-
-      <!-- Botão Painel de Peças -->
-      <button id="btn-toggle-inspector" title="Ver Lista Completa de Peças" class="text-xs bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 px-2.5 py-1.5 rounded-lg border border-slate-300 transition flex items-center gap-1.5 font-medium">
-        <i class="fa-solid fa-list-check text-orange-600"></i>
-        <span>Peças (<span id="parts-counter">0</span>)</span>
-      </button>
-
-      <!-- Botão Resetar Câmera / Enquadrar Modelo -->
-      <button id="btn-show-all" title="Enquadrar Modelo Todo" class="text-xs bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 p-2 sm:px-3 sm:py-1.5 rounded-lg border border-slate-300 transition flex items-center gap-1.5">
-        <i class="fa-solid fa-expand text-slate-600"></i>
-        <span class="hidden sm:inline font-medium">Enquadrar</span>
-      </button>
-
-      <!-- Botões de Zoom -->
-      <div class="flex items-center bg-slate-100 border border-slate-300 rounded-lg overflow-hidden">
-        <button id="btn-zoom-in" title="Aproximar (+)" class="p-2 sm:px-2.5 sm:py-1.5 hover:bg-slate-200 active:bg-slate-300 text-slate-700 transition">
-          <i class="fa-solid fa-plus text-xs"></i>
-        </button>
-        <div class="w-[1px] h-4 bg-slate-300"></div>
-        <button id="btn-zoom-out" title="Afastar (-)" class="p-2 sm:px-2.5 sm:py-1.5 hover:bg-slate-200 active:bg-slate-300 text-slate-700 transition">
-          <i class="fa-solid fa-minus text-xs"></i>
-        </button>
-      </div>
-
-      <!-- Botão Abrir Arquivo -->
-      <label title="Abrir .GLB, .GLTF ou .OBJ" class="text-xs bg-slate-900 hover:bg-black active:bg-slate-800 text-white p-2 sm:px-3 sm:py-1.5 rounded-lg cursor-pointer transition flex items-center gap-1.5 shadow-sm">
-        <i class="fa-solid fa-folder-open text-orange-400"></i>
-        <span class="font-medium hidden sm:inline">Abrir Arquivo</span>
-        <input type="file" id="file-input" accept=".glb,.gltf,.obj" class="hidden">
-      </label>
+    <div class="dim-box">
+      <div class="dim-label">Dimensões Reais da Chapa</div>
+      <div class="dim-val" id="card-dims">-- x -- x -- mm</div>
     </div>
-  </header>
-
-  <!-- Indicador de Status -->
-  <div class="fixed top-14 left-3 z-10 flex flex-col gap-1.5 pointer-events-none max-w-[280px] sm:max-w-xs">
-    <div class="flex items-center gap-2 bg-white/95 backdrop-blur-sm px-2.5 py-1.5 rounded-md border border-slate-200 text-[11px] text-slate-700 shadow-sm pointer-events-auto">
-      <i class="fa-solid fa-circle-info text-blue-500"></i>
-      <span id="status-indicator">Arraste seu arquivo .GLB ou .GLTF aqui.</span>
+    <div class="card-actions">
+      <button class="btn btn-focus" onclick="focusCurrentPiece()">Aproximar</button>
+      <button class="btn btn-qr" onclick="openQrModal()">QR Code</button>
     </div>
   </div>
 
-  <!-- Toast Notificação -->
-  <div id="toast" class="fixed top-16 left-1/2 -translate-x-1/2 z-50 transform -translate-y-10 opacity-0 pointer-events-none transition-all duration-300 bg-slate-900 text-white text-xs py-2 px-4 rounded-full shadow-lg flex items-center gap-2">
-    <i class="fa-solid fa-info-circle text-orange-400" id="toast-icon"></i>
-    <span id="toast-msg">Mensagem</span>
-  </div>
-
-  <!-- Painel Lateral: Lista de Peças -->
-  <aside id="inspector-drawer" class="fixed top-12 bottom-0 right-0 w-80 sm:w-96 z-30 bg-white/95 backdrop-blur-md border-l border-slate-200 shadow-2xl transform translate-x-full transition-transform duration-300 flex flex-col">
-    <div class="p-3 border-b border-slate-200 flex items-center justify-between bg-slate-50">
-      <div>
-        <h2 class="text-xs sm:text-sm font-bold text-slate-800 flex items-center gap-2">
-          <i class="fa-solid fa-cubes text-orange-600"></i>
-          Peças Detectadas no Modelo
-        </h2>
-        <p class="text-[10px] text-slate-500">Clique para selecionar e localizar no 3D</p>
-      </div>
-      <button id="btn-close-inspector" class="text-slate-400 hover:text-slate-600 p-1 text-sm">
-        <i class="fa-solid fa-xmark"></i>
-      </button>
-    </div>
-
-    <!-- Campo de Busca no Painel -->
-    <div class="p-2 border-b border-slate-100 bg-white">
-      <div class="relative">
-        <input type="text" id="inspector-search" placeholder="Filtrar por nome ou número (#)..." class="w-full text-xs bg-slate-100 border border-slate-200 rounded-md py-1.5 pl-7 pr-2 focus:outline-none focus:ring-1 focus:ring-orange-500">
-        <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400"></i>
-      </div>
-    </div>
-
-    <!-- Lista com Scroll -->
-    <div id="inspector-list" class="flex-1 overflow-y-auto custom-scroll p-2 space-y-1 text-xs">
-      <div class="text-center text-slate-400 py-8 text-xs">
-        Nenhum arquivo carregado ainda.<br>Abra um .GLB ou .GLTF exportado do SketchUp.
-      </div>
-    </div>
-  </aside>
-
-  <!-- Card Inferior com Detalhes da Peça Selecionada -->
-  <div id="part-card" class="fixed bottom-3 left-3 right-3 sm:left-auto sm:right-4 sm:w-96 z-20 bg-white/95 backdrop-blur-md border border-slate-200 rounded-xl shadow-xl transition-all duration-300 transform translate-y-36 opacity-0 pointer-events-none p-4">
-    <div class="flex items-start justify-between gap-2 border-b border-slate-100 pb-2 mb-2.5">
-      <div class="flex items-center gap-2.5 min-w-0">
-        <span id="badge-part-number" class="w-8 h-8 rounded-lg bg-emerald-600 text-white font-mono font-bold text-xs flex items-center justify-center shrink-0 shadow-sm">
-          #
-        </span>
-        <div class="truncate">
-          <h2 id="card-part-name" class="font-bold text-sm text-slate-900 leading-tight truncate">Nome da Peça</h2>
-          <p id="card-part-sub" class="text-[11px] text-slate-500 font-mono truncate">Material / Identificador</p>
-        </div>
-      </div>
-      <button id="btn-close-card" class="text-slate-400 hover:text-slate-600 p-1 shrink-0">
-        <i class="fa-solid fa-times"></i>
-      </button>
-    </div>
-
-    <!-- Informações de Medidas Reais Calculadas -->
-    <div class="grid grid-cols-2 gap-2 text-xs mb-3">
-      <div class="bg-slate-50 border border-slate-200/80 rounded-lg p-2">
-        <span class="text-[10px] text-slate-400 uppercase font-mono block">Dimensões Reais</span>
-        <span id="card-dimensions" class="font-bold text-slate-800 text-xs">-- x -- mm</span>
-      </div>
-      <div class="bg-slate-50 border border-slate-200/80 rounded-lg p-2">
-        <span class="text-[10px] text-slate-400 uppercase font-mono block">Material de Obra</span>
-        <span id="card-status" class="font-bold text-emerald-600 text-[11px] truncate block">Padrão</span>
-      </div>
-    </div>
-
-    <!-- Botões de Ação -->
-    <div class="flex items-center gap-2">
-      <button id="btn-focus-part" class="flex-1 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-medium py-2 px-3 rounded-lg text-xs transition flex items-center justify-center gap-1.5 shadow-sm">
-        <i class="fa-solid fa-crosshairs"></i>
-        Aproximar Peça
-      </button>
-      <button id="btn-qr-part" class="bg-slate-900 hover:bg-black active:bg-slate-800 text-white font-medium py-2 px-3 rounded-lg text-xs transition flex items-center justify-center gap-1.5 shadow-sm" title="Gerar QR Code desta peça para etiqueta de instalação">
-        <i class="fa-solid fa-qrcode text-emerald-400"></i>
-        <span>QR Code</span>
-      </button>
-      <button id="btn-isolate-group" class="bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 font-medium py-2 px-3 rounded-lg text-xs border border-slate-200 transition flex items-center justify-center gap-1.5" title="Destacar todas as peças com este mesmo nome">
-        <i class="fa-solid fa-layer-group text-slate-600"></i>
-        <span>Iguais</span>
-      </button>
+  <div id="qr-modal" onclick="if(event.target===this)this.style.display='none'">
+    <div class="qr-box">
+      <h3 style="font-size:15px;color:#0f172a" id="qr-title">Etiqueta da Peça</h3>
+      <p style="font-size:12px;color:#64748b" id="qr-sub">Escaneie para abrir direto na obra</p>
+      <div id="qr-target" style="display:flex;justify-content:center;margin:6px 0;"></div>
+      <button class="btn btn-primary" onclick="window.print()">Imprimir Etiqueta</button>
     </div>
   </div>
 
-  <!-- Modal: QR Code da Peça para Etiqueta de Instalação -->
-  <div id="qr-modal" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-5 flex flex-col items-center border border-slate-100">
-      <div class="w-full flex items-center justify-between pb-3 border-b border-slate-100">
-        <div class="flex items-center gap-2">
-          <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-          <h3 class="font-bold text-slate-800 text-sm">Etiqueta de Montagem</h3>
-        </div>
-        <button id="btn-close-qr-modal" class="text-slate-400 hover:text-slate-600 p-1 text-base">
-          <i class="fa-solid fa-xmark"></i>
-        </button>
-      </div>
-
-      <div class="text-center my-3">
-        <h4 id="qr-modal-part-name" class="font-extrabold text-slate-900 text-base leading-snug">TESTEIRA_DE_ACM#8</h4>
-        <p id="qr-modal-dim" class="text-xs text-slate-500 font-mono mt-0.5">1500 x 800 mm</p>
-      </div>
-
-      <!-- Container do QR Code renderizado -->
-      <div class="p-3 bg-white rounded-xl border-2 border-slate-900 shadow-md flex items-center justify-center my-1" id="qrcode-container"></div>
-
-      <p class="text-[11px] text-center text-slate-500 mt-2 px-2">
-        Ao escanear na obra, o 3D abre direto com esta peça <strong>destacada em verde</strong>.
-      </p>
-
-      <!-- Configuração de URL do Modelo em Nuvem -->
-      <div class="w-full mt-3 pt-3 border-t border-slate-100">
-        <label class="text-[10px] uppercase font-bold text-slate-400 block mb-1">Link Público do Modelo 3D (.glb)</label>
-        <div class="flex gap-1.5">
-          <input type="text" id="model-url-input" placeholder="Ex: https://meusite.com/obra.glb" class="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono text-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500">
-          <button id="btn-update-qr" class="bg-slate-800 hover:bg-slate-900 text-white text-xs px-2.5 py-1.5 rounded-lg font-medium transition shrink-0">
-            Atualizar
-          </button>
-        </div>
-      </div>
-
-      <div class="w-full flex gap-2 mt-4">
-        <button id="btn-copy-qr-link" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs py-2 px-3 rounded-lg font-semibold transition flex items-center justify-center gap-1.5 shadow-sm">
-          <i class="fa-solid fa-copy"></i>
-          <span>Copiar Link</span>
-        </button>
-        <button id="btn-print-qr" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs py-2 px-3 rounded-lg font-semibold transition flex items-center justify-center gap-1.5 border border-slate-300">
-          <i class="fa-solid fa-print"></i>
-          <span>Imprimir</span>
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Script Principal -->
   <script>
-    const state = {
-      items: [],
-      selectedItem: null,
-      currentModelGroup: null,
-      currentModelUrl: null
-    };
+    let scene, camera, renderer, controls;
+    let modelRoot = null;
+    let pieces = [];
+    let selectedMesh = null;
+    let origMaterials = new Map();
+    let currentModelUrl = "cobertura-do-predio.glb";
 
-    // Material Verde Neon de Altíssimo Contraste e Emissão Própria (Não desbota com a luz)
-    const highlightGreenMaterial = new THREE.MeshStandardMaterial({
-      color: 0x00e65b,
-      emissive: 0x009933,
-      emissiveIntensity: 0.85,
-      roughness: 0.15,
-      metalness: 0.0,
-      side: THREE.DoubleSide
+    const highlightMat = new THREE.MeshStandardMaterial({
+      color: 0x00e676,
+      emissive: 0x00b348,
+      emissiveIntensity: 0.65,
+      roughness: 0.2,
+      metalness: 0.1
     });
 
-    // Referências DOM
-    const viewportContainer = document.getElementById('viewport-container');
-    const categoryFilter = document.getElementById('category-filter');
-    const btnIsolateGroup = document.getElementById('btn-isolate-group');
-    const btnShowAll = document.getElementById('btn-show-all');
-    const btnZoomIn = document.getElementById('btn-zoom-in');
-    const btnZoomOut = document.getElementById('btn-zoom-out');
-    const btnFocusPart = document.getElementById('btn-focus-part');
-    const btnCloseCard = document.getElementById('btn-close-card');
-    const partCard = document.getElementById('part-card');
-    const badgePartNumber = document.getElementById('badge-part-number');
-    const cardPartName = document.getElementById('card-part-name');
-    const cardPartSub = document.getElementById('card-part-sub');
-    const cardDimensions = document.getElementById('card-dimensions');
-    const cardStatus = document.getElementById('card-status');
-    const fileInput = document.getElementById('file-input');
-    const toast = document.getElementById('toast');
-    const toastMsg = document.getElementById('toast-msg');
-    const statusIndicator = document.getElementById('status-indicator');
-    const projectTag = document.getElementById('project-tag');
-    const btnToggleInspector = document.getElementById('btn-toggle-inspector');
-    const btnCloseInspector = document.getElementById('btn-close-inspector');
-    const inspectorDrawer = document.getElementById('inspector-drawer');
-    const inspectorList = document.getElementById('inspector-list');
-    const inspectorSearch = document.getElementById('inspector-search');
-    const partsCounter = document.getElementById('parts-counter');
-    
-    // Referências do Modal de QR Code
-    const btnQrPart = document.getElementById('btn-qr-part');
-    const qrModal = document.getElementById('qr-modal');
-    const btnCloseQrModal = document.getElementById('btn-close-qr-modal');
-    const qrcodeContainer = document.getElementById('qrcode-container');
-    const qrModalPartName = document.getElementById('qr-modal-part-name');
-    const qrModalDim = document.getElementById('qr-modal-dim');
-    const modelUrlInput = document.getElementById('model-url-input');
-    const btnUpdateQr = document.getElementById('btn-update-qr');
-    const btnCopyQrLink = document.getElementById('btn-copy-qr-link');
-    const btnPrintQr = document.getElementById('btn-print-qr');
-
-    let scene, camera, renderer, controls, raycaster, mouse;
-    let qrCodeInstance = null;
-    let pendingPartSelection = null;
-
-    function initThree() {
+    function init() {
+      const container = document.getElementById('canvas-container');
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0xf1f5f9);
 
-      camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 10, 500000);
-      camera.position.set(4000, 3000, 4500);
+      camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera.position.set(20, 15, 20);
 
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
+      renderer = new THREE.WebGLRenderer({ antialias: true });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.setSize(window.innerWidth, window.innerHeight);
-      renderer.outputEncoding = THREE.sRGBEncoding;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1.0;
-      viewportContainer.appendChild(renderer.domElement);
+      container.appendChild(renderer.domElement);
 
       controls = new THREE.OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
       controls.dampingFactor = 0.08;
-      controls.enableZoom = true;
-      controls.zoomSpeed = 1.2;
-      controls.screenSpacePanning = true;
 
-      // Iluminação equilibrada
-      const ambLight = new THREE.AmbientLight(0xffffff, 1.1);
-      scene.add(ambLight);
+      scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+      const dirLight = new THREE.DirectionalLight(0xffffff, 1.1);
+      dirLight.position.set(30, 50, 40);
+      scene.add(dirLight);
 
-      const hemiLight = new THREE.HemisphereLight(0xffffff, 0x94a3b8, 0.9);
-      hemiLight.position.set(0, 5000, 0);
-      scene.add(hemiLight);
+      window.addEventListener('resize', onWindowResize);
+      renderer.domElement.addEventListener('pointerdown', onPointerDown);
 
-      const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.9);
-      dirLight1.position.set(3000, 6000, 3000);
-      scene.add(dirLight1);
-
-      const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.7);
-      dirLight2.position.set(-3000, 4000, -3000);
-      scene.add(dirLight2);
-
-      const dirLightBottom = new THREE.DirectionalLight(0xffffff, 0.7);
-      dirLightBottom.position.set(0, -4000, 0);
-      scene.add(dirLightBottom);
-
-      // Grade sutil no piso
-      const grid = new THREE.GridHelper(10000, 50, 0x94a3b8, 0xe2e8f0);
-      grid.position.y = -2;
-      scene.add(grid);
-
-      raycaster = new THREE.Raycaster();
-      mouse = new THREE.Vector2();
-
-      window.addEventListener('resize', onWindowResize, false);
-      renderer.domElement.addEventListener('pointerdown', onPointerDown, false);
-      renderer.domElement.addEventListener('dblclick', onDoubleClick, false);
-
-      setupEvents();
+      checkUrlParams();
       animate();
     }
 
-    function animate() {
-      requestAnimationFrame(animate);
-      if (controls) controls.update();
-      if (renderer && scene && camera) renderer.render(scene, camera);
+    function checkUrlParams() {
+      const p = new URLSearchParams(window.location.search);
+      const m = p.get('model');
+      const part = p.get('part');
+      if (m) currentModelUrl = m;
+      loadModelFromUrl(currentModelUrl, part);
+    }
+
+    function loadModelFromUrl(url, targetPartName) {
+      document.getElementById('loading-overlay').style.display = 'flex';
+      new THREE.GLTFLoader().load(url, (gltf) => {
+        setupLoadedModel(gltf.scene);
+        if (targetPartName) selectPieceByName(decodeURIComponent(targetPartName));
+        document.getElementById('loading-overlay').style.display = 'none';
+      }, undefined, () => {
+        document.getElementById('loading-overlay').style.display = 'none';
+      });
+    }
+
+    function loadLocalFile(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      document.getElementById('loading-overlay').style.display = 'flex';
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        new THREE.GLTFLoader().parse(ev.target.result, '', (gltf) => {
+          setupLoadedModel(gltf.scene);
+          document.getElementById('loading-overlay').style.display = 'none';
+        });
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function calculateRealPieceDimensions(mesh) {
+      if (!mesh.geometry) return "0 x 0 x 0 mm";
+      
+      const geom = mesh.geometry.clone();
+      geom.applyMatrix4(mesh.matrixWorld);
+      geom.computeBoundingBox();
+      const b = geom.boundingBox;
+
+      let dx = Math.abs(b.max.x - b.min.x);
+      let dy = Math.abs(b.max.y - b.min.y);
+      let dz = Math.abs(b.max.z - b.min.z);
+
+      // Conversão de escala se o modelo vier em metros do SketchUp
+      let scaleFactor = 1000;
+      if (dx > 50 || dy > 50 || dz > 50) {
+        scaleFactor = 1; // Já está em milímetros
+      }
+
+      let dims = [dx * scaleFactor, dy * scaleFactor, dz * scaleFactor].sort((a, b) => b - a);
+      return `${Math.round(dims[0])} x ${Math.round(dims[1])} x ${dims[2] < 10 ? dims[2].toFixed(1) : Math.round(dims[2])} mm`;
+    }
+
+    function setupLoadedModel(root) {
+      if (modelRoot) scene.remove(modelRoot);
+      modelRoot = root;
+      pieces = [];
+      origMaterials.clear();
+
+      modelRoot.traverse((obj) => {
+        if (obj.isMesh) {
+          pieces.push(obj);
+          origMaterials.set(obj, obj.material);
+
+          // Linhas técnicas de arestas
+          const edges = new THREE.EdgesGeometry(obj.geometry, 28);
+          const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x334155, linewidth: 1 }));
+          obj.add(line);
+        }
+      });
+
+      scene.add(modelRoot);
+      resetCamera();
+    }
+
+    function selectPiece(mesh) {
+      clearSelection();
+      selectedMesh = mesh;
+      origMaterials.set(mesh, mesh.material);
+      mesh.material = highlightMat;
+
+      const title = mesh.name || "Chapa Sem Nome";
+      const dims = calculateRealPieceDimensions(mesh);
+
+      document.getElementById('card-title').innerText = title;
+      document.getElementById('card-dims').innerText = dims;
+      document.getElementById('info-card').style.display = 'flex';
+    }
+
+    function selectPieceByName(name) {
+      const p = pieces.find(m => m.name.toLowerCase() === name.toLowerCase() || m.name.includes(name));
+      if (p) {
+        selectPiece(p);
+        focusCurrentPiece();
+      }
+    }
+
+    function clearSelection() {
+      if (selectedMesh) {
+        selectedMesh.material = origMaterials.get(selectedMesh);
+        selectedMesh = null;
+      }
+      document.getElementById('info-card').style.display = 'none';
+    }
+
+    function onPointerDown(e) {
+      if (e.button !== 0) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      const mouse = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1
+      );
+      const ray = new THREE.Raycaster();
+      ray.setFromCamera(mouse, camera);
+      const hits = ray.intersectObjects(pieces, false);
+      if (hits.length > 0) {
+        selectPiece(hits[0].object);
+      }
+    }
+
+    function focusCurrentPiece() {
+      if (!selectedMesh) return;
+      const box = new THREE.Box3().setFromObject(selectedMesh);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z);
+
+      const offset = new THREE.Vector3(1, 1, 1).normalize().multiplyScalar(maxDim * 2.5);
+      camera.position.copy(center).add(offset);
+      controls.target.copy(center);
+      controls.update();
+    }
+
+    function resetCamera() {
+      if (!modelRoot) return;
+      const box = new THREE.Box3().setFromObject(modelRoot);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z);
+
+      camera.position.set(center.x + maxDim * 1.4, center.y + maxDim * 1.1, center.z + maxDim * 1.4);
+      controls.target.copy(center);
+      controls.update();
+    }
+
+    function openQrModal() {
+      if (!selectedMesh) return;
+      const modal = document.getElementById('qr-modal');
+      const target = document.getElementById('qr-target');
+      target.innerHTML = "";
+
+      const baseUrl = window.location.origin + window.location.pathname;
+      const directUrl = `${baseUrl}?model=${encodeURIComponent(currentModelUrl)}&part=${encodeURIComponent(selectedMesh.name)}`;
+
+      new QRCode(target, {
+        text: directUrl,
+        width: 180,
+        height: 180
+      });
+
+      document.getElementById('qr-title').innerText = selectedMesh.name;
+      document.getElementById('qr-sub').innerText = document.getElementById('card-dims').innerText;
+      modal.style.display = 'flex';
     }
 
     function onWindowResize() {
-      if (!camera || !renderer) return;
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    // Calcula dimensões reais isolando apenas os vértices da malha
-    function getMeshExactBounds(mesh) {
-      const box = new THREE.Box3();
-      const pos = mesh.geometry.attributes.position;
-      const v = new THREE.Vector3();
-
-      mesh.updateMatrixWorld(true);
-      for (let i = 0; i < pos.count; i++) {
-        v.fromBufferAttribute(pos, i);
-        v.applyMatrix4(mesh.matrixWorld);
-        box.expandByPoint(v);
-      }
-
-      return {
-        box: box,
-        center: box.getCenter(new THREE.Vector3()),
-        size: box.getSize(new THREE.Vector3())
-      };
-    }
-
-    // Cria contornos técnicos de arestas (EdgesGeometry) com ângulo ótimo para chapas de ACM
-    function attachTechnicalEdges(mesh) {
-      if (!mesh || !mesh.geometry) return;
-
-      try {
-        const edgesGeom = new THREE.EdgesGeometry(mesh.geometry, 18);
-        const edgesMat = new THREE.LineBasicMaterial({
-          color: 0x0f172a,
-          linewidth: 1.5,
-          transparent: true,
-          opacity: 0.9,
-          depthTest: true
-        });
-
-        const lineSegments = new THREE.LineSegments(edgesGeom, edgesMat);
-        lineSegments.name = "technical_edge_line";
-        lineSegments.raycast = () => {};
-        lineSegments.renderOrder = (mesh.renderOrder || 0) + 1;
-        mesh.add(lineSegments);
-        mesh.userData.edgeLine = lineSegments;
-      } catch (err) {
-        console.warn("Aviso ao gerar arestas:", err);
-      }
-    }
-
-    // Configuração dos materiais originais para evitar manchas escuras ou desbotadas
-    function prepareOriginalMaterial(mat) {
-      if (!mat) return;
-
-      mat.side = THREE.DoubleSide;
-      mat.transparent = false;
-      mat.opacity = 1.0;
-      mat.depthWrite = true;
-
-      if (mat.map) {
-        mat.map.encoding = THREE.sRGBEncoding;
-        mat.map.needsUpdate = true;
-      }
-
-      if (mat.color && (mat.color.r === 0 && mat.color.g === 0 && mat.color.b === 0) && !mat.map) {
-        mat.color.setHex(0x94a3b8);
-      }
-
-      if (mat.isMeshStandardMaterial || mat.isMeshPhysicalMaterial) {
-        mat.metalness = Math.min(mat.metalness !== undefined ? mat.metalness : 0.05, 0.15);
-        mat.roughness = Math.max(mat.roughness !== undefined ? mat.roughness : 0.5, 0.35);
-      }
-
-      mat.needsUpdate = true;
-    }
-
-    // Processamento do Modelo do SketchUp
-    function processModel(rootObject, fileName) {
-      if (state.currentModelGroup) {
-        scene.remove(state.currentModelGroup);
-      }
-
-      state.items = [];
-
-      rootObject.updateMatrixWorld(true);
-      const initialBox = new THREE.Box3().setFromObject(rootObject);
-
-      if (initialBox.isEmpty()) {
-        showToast("Arquivo sem malhas visíveis.", true);
-        return;
-      }
-
-      // Converte escala para milímetros se o arquivo foi exportado em metros
-      const initialSize = initialBox.getSize(new THREE.Vector3());
-      const maxDim = Math.max(initialSize.x, initialSize.y, initialSize.z);
-      if (maxDim > 0 && maxDim < 60) {
-        const factor = 1000;
-        rootObject.scale.set(factor, factor, factor);
-        rootObject.updateMatrixWorld(true);
-      }
-
-      // Centraliza na origem (0, 0, 0)
-      const centeredBox = new THREE.Box3().setFromObject(rootObject);
-      const center = centeredBox.getCenter(new THREE.Vector3());
-      rootObject.position.sub(center);
-
-      const floorBox = new THREE.Box3().setFromObject(rootObject);
-      rootObject.position.y -= floorBox.min.y;
-      rootObject.updateMatrixWorld(true);
-
-      let meshIndex = 0;
-      rootObject.traverse((child) => {
-        if (child.isMesh) {
-          if (!child.geometry || !child.geometry.attributes || !child.geometry.attributes.position) {
-            return;
-          }
-
-          meshIndex++;
-
-          if (!child.geometry.attributes.normal) {
-            try {
-              child.geometry.computeVertexNormals();
-            } catch (e) {}
-          }
-
-          let rawName = child.name;
-          if (!rawName || rawName === "" || rawName.startsWith("mesh_") || rawName.startsWith("ID_")) {
-            if (child.parent && child.parent.name && child.parent.name !== "" && child.parent !== rootObject) {
-              rawName = child.parent.name;
-            } else {
-              rawName = `Peça_${meshIndex}`;
-            }
-          }
-
-          let category = "OUTROS";
-          const upper = rawName.toUpperCase();
-          if (upper.includes("TESTEIRA")) category = "TESTEIRA";
-          else if (upper.includes("FORRO")) category = "FORRO";
-          else if (upper.includes("JUNTA")) category = "JUNTA";
-
-          child.userData.originalMaterial = child.material;
-
-          let matName = "Padrão ACM";
-          if (Array.isArray(child.material)) {
-            matName = child.material.map(m => m.name || 'Padrão').join(' / ');
-            child.material.forEach(m => prepareOriginalMaterial(m));
-          } else if (child.material) {
-            if (child.material.name) matName = child.material.name;
-            prepareOriginalMaterial(child.material);
-          }
-
-          const exactBounds = getMeshExactBounds(child);
-          let dimStr = "Sob Medida";
-          if (!exactBounds.box.isEmpty()) {
-            const sorted = [exactBounds.size.x, exactBounds.size.y, exactBounds.size.z].sort((a, b) => b - a);
-            dimStr = `${sorted[0].toFixed(0)} x ${sorted[1].toFixed(0)} x ${sorted[2].toFixed(1)} mm`;
-          }
-
-          child.userData = {
-            id: meshIndex,
-            rawName: rawName,
-            category: category,
-            cleanName: rawName.replace(/#/g, " #").replace(/[_-]/g, " ").trim(),
-            materialName: matName,
-            dimStr: dimStr,
-            originalMaterial: child.material,
-            exactCenter: exactBounds.center,
-            exactSize: exactBounds.size
-          };
-
-          attachTechnicalEdges(child);
-          state.items.push(child);
-        }
-      });
-
-      // Ordena peças por Categoria e Nome natural
-      state.items.sort((a, b) => {
-        const catCompare = a.userData.category.localeCompare(b.userData.category, 'pt-BR');
-        if (catCompare !== 0) return catCompare;
-        return a.userData.rawName.localeCompare(b.userData.rawName, 'pt-BR', { numeric: true, sensitivity: 'base' });
-      });
-
-      state.items.forEach((item, index) => {
-        item.userData.sortedIndex = index + 1;
-      });
-
-      scene.add(rootObject);
-      state.currentModelGroup = rootObject;
-      projectTag.innerText = fileName;
-
-      partsCounter.innerText = state.items.length;
-      filterInspectorList();
-      fitCameraToObject(rootObject, 1.4);
-
-      const countMsg = `${state.items.length} peças prontas para montagem.`;
-      updateStatus(countMsg);
-      showToast(countMsg);
-
-      if (pendingPartSelection) {
-        selectItemByNameOrIndex(pendingPartSelection);
-        pendingPartSelection = null;
-      }
-    }
-
-    function selectItemByNameOrIndex(identifier) {
-      if (!identifier) return;
-      const cleanTarget = String(identifier).toLowerCase().trim();
-
-      const found = state.items.find(item => 
-        String(item.userData.sortedIndex) === cleanTarget ||
-        item.userData.rawName.toLowerCase() === cleanTarget ||
-        item.userData.rawName.toLowerCase().includes(cleanTarget)
-      );
-
-      if (found) {
-        selectItemById(found.userData.id, true);
-        showToast(`Peça #${found.userData.sortedIndex} selecionada!`);
-      }
-    }
-
-    function filterInspectorList() {
-      const searchTerm = (inspectorSearch.value || "").toLowerCase().trim();
-      const cat = categoryFilter ? categoryFilter.value : "all";
-
-      const filtered = state.items.filter(item => {
-        const matchCat = (cat === "all" || item.userData.category === cat);
-        const matchSearch = !searchTerm || 
-          item.userData.rawName.toLowerCase().includes(searchTerm) ||
-          item.userData.cleanName.toLowerCase().includes(searchTerm) ||
-          String(item.userData.sortedIndex).includes(searchTerm);
-        return matchCat && matchSearch;
-      });
-
-      renderInspectorList(filtered);
-    }
-
-    function renderInspectorList(itemList) {
-      inspectorList.innerHTML = '';
-
-      if (itemList.length === 0) {
-        inspectorList.innerHTML = '<div class="text-center text-slate-400 py-6">Nenhuma peça encontrada.</div>';
-        return;
-      }
-
-      itemList.forEach((item) => {
-        const row = document.createElement('div');
-        const isSelected = state.selectedItem === item;
-        row.className = `p-2 rounded-lg border cursor-pointer transition flex items-center justify-between gap-2 ${
-          isSelected ? 'border-emerald-500 bg-emerald-50 shadow-sm' : 'border-slate-200 bg-white hover:bg-slate-50'
-        }`;
-        
-        let badgeColor = isSelected ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-700";
-
-        row.innerHTML = `
-          <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-1.5">
-              <span class="w-6 h-5 rounded ${badgeColor} font-mono text-[10px] flex items-center justify-center font-bold shrink-0">
-                ${item.userData.sortedIndex}
-              </span>
-              <span class="font-bold text-slate-800 text-[11px] truncate block" title="${item.userData.rawName}">
-                ${item.userData.rawName}
-              </span>
-            </div>
-            <div class="flex items-center gap-2 pl-7.5 text-[10px] text-slate-400 font-mono mt-0.5">
-              <span>${item.userData.dimStr}</span>
-              <span>•</span>
-              <span class="truncate">${item.userData.materialName}</span>
-            </div>
-          </div>
-          <button class="text-[10px] ${isSelected ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-emerald-600 hover:text-white'} px-2 py-1 rounded font-medium transition shrink-0">
-            Focar
-          </button>
-        `;
-
-        row.addEventListener('click', () => {
-          selectItemById(item.userData.id, true);
-        });
-
-        inspectorList.appendChild(row);
-      });
-    }
-
-    // Aplica o verde elétrico inconfundível na peça ativa e mantém as demais com material original sólido
-    function setMeshHighlightState(mesh, isHighlighted) {
-      if (!mesh) return;
-
-      if (isHighlighted) {
-        mesh.material = highlightGreenMaterial;
-        if (mesh.userData && mesh.userData.edgeLine && mesh.userData.edgeLine.material) {
-          mesh.userData.edgeLine.material.color.setHex(0x064e3b);
-          mesh.userData.edgeLine.material.opacity = 1.0;
-          mesh.userData.edgeLine.material.needsUpdate = true;
-        }
-      } else {
-        if (mesh.userData.originalMaterial) {
-          mesh.material = mesh.userData.originalMaterial;
-        }
-        
-        const restoreMat = (mat) => {
-          if (!mat) return;
-          mat.transparent = false;
-          mat.opacity = 1.0;
-          mat.depthWrite = true;
-          mat.needsUpdate = true;
-        };
-
-        if (Array.isArray(mesh.material)) {
-          mesh.material.forEach(restoreMat);
-        } else {
-          restoreMat(mesh.material);
-        }
-
-        if (mesh.userData && mesh.userData.edgeLine && mesh.userData.edgeLine.material) {
-          mesh.userData.edgeLine.material.color.setHex(0x0f172a);
-          mesh.userData.edgeLine.material.opacity = 0.85;
-          mesh.userData.edgeLine.material.needsUpdate = true;
-        }
-      }
-    }
-
-    function selectItemById(id, focusCamera = true) {
-      if (!id) {
-        resetSelection();
-        return;
-      }
-
-      const target = state.items.find(item => item.userData.id === Number(id));
-      if (!target) return;
-
-      state.selectedItem = target;
-
-      state.items.forEach(mesh => {
-        setMeshHighlightState(mesh, mesh === target);
-      });
-
-      badgePartNumber.innerText = `#${target.userData.sortedIndex}`;
-      cardPartName.innerText = target.userData.rawName;
-      cardPartSub.innerText = target.userData.materialName;
-      cardDimensions.innerText = target.userData.dimStr;
-      cardStatus.innerText = target.userData.materialName.split('/')[0] || "Padrão ACM";
-
-      partCard.classList.remove('translate-y-36', 'opacity-0', 'pointer-events-none');
-      partCard.classList.add('translate-y-0', 'opacity-100');
-
-      if (focusCamera) {
-        focusOnPiecePerspective(target);
-      }
-
-      filterInspectorList();
-    }
-
-    // Geração do QR Code específico da Peça selecionada
-    function generatePartQrCode() {
-      if (!state.selectedItem) return;
-
-      const part = state.selectedItem.userData;
-      qrModalPartName.innerText = `${part.sortedIndex}. ${part.rawName}`;
-      qrModalDim.innerText = `${part.dimStr} • ${part.materialName}`;
-
-      const currentOrigin = window.location.origin + window.location.pathname;
-      const modelParam = state.currentModelUrl || modelUrlInput.value.trim() || '';
-      
-      let targetUrl = `${currentOrigin}?part=${encodeURIComponent(part.rawName)}`;
-      if (modelParam) {
-        targetUrl += `&model=${encodeURIComponent(modelParam)}`;
-      }
-
-      qrcodeContainer.innerHTML = '';
-      qrCodeInstance = new QRCode(qrcodeContainer, {
-        text: targetUrl,
-        width: 170,
-        height: 170,
-        colorDark: "#09090b",
-        colorLight: "#ffffff",
-        correctLevel: QRCode.CorrectLevel.M
-      });
-
-      qrcodeContainer.dataset.url = targetUrl;
-      qrModal.classList.remove('hidden');
-    }
-
-    function isolateGroupByName(rawName) {
-      if (!rawName) return;
-      const groupItems = state.items.filter(item => item.userData.rawName === rawName);
-      if (groupItems.length === 0) return;
-
-      state.items.forEach(mesh => {
-        setMeshHighlightState(mesh, groupItems.includes(mesh));
-      });
-
-      showToast(`${groupItems.length} peças destacadas em verde: ${rawName}`);
-    }
-
-    function resetSelection() {
-      state.selectedItem = null;
-
-      state.items.forEach(mesh => {
-        setMeshHighlightState(mesh, false);
-      });
-
-      partCard.classList.add('translate-y-36', 'opacity-0', 'pointer-events-none');
-      partCard.classList.remove('translate-y-0', 'opacity-100');
-
-      if (state.currentModelGroup) {
-        fitCameraToObject(state.currentModelGroup, 1.4);
-      }
-
-      filterInspectorList();
-    }
-
-    // Aproximação clássica estável e confiável da peça
-    function focusOnPiecePerspective(targetMesh) {
-      if (!targetMesh) return;
-
-      const box = new THREE.Box3().setFromObject(targetMesh);
-      if (box.isEmpty()) return;
-
-      const center = box.getCenter(new THREE.Vector3());
-      const size = box.getSize(new THREE.Vector3());
-      const maxDim = Math.max(size.x, size.y, size.z, 500);
-
-      const fov = camera.fov * (Math.PI / 180);
-      const camDistance = Math.max((maxDim / 2) / Math.tan(fov / 2) * 1.5, 900);
-
-      const dir = new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
-      if (dir.lengthSq() < 0.1) dir.set(0.7, 0.4, 0.7).normalize();
-
-      const targetCamPos = new THREE.Vector3().addVectors(center, dir.clone().multiplyScalar(camDistance));
-
-      animateCameraTo(targetCamPos, center, 600);
-    }
-
-    function fitCameraToObject(object, offsetFactor = 1.4) {
-      const box = new THREE.Box3().setFromObject(object);
-      if (box.isEmpty()) return;
-
-      const center = box.getCenter(new THREE.Vector3());
-      const size = box.getSize(new THREE.Vector3());
-      const maxDim = Math.max(size.x, size.y, size.z, 10);
-      const fov = camera.fov * (Math.PI / 180);
-      let cameraDistance = Math.abs(maxDim / 2 / Math.tan(fov / 2)) * offsetFactor;
-
-      animateCameraTo(
-        new THREE.Vector3(center.x + cameraDistance * 0.7, center.y + cameraDistance * 0.5, center.z + cameraDistance * 0.8),
-        center,
-        450
-      );
-    }
-
-    let cameraAnimFrame = null;
-    function animateCameraTo(targetCamPos, targetCenterPos, duration = 600) {
-      if (cameraAnimFrame) cancelAnimationFrame(cameraAnimFrame);
-      const startCamPos = camera.position.clone();
-      const startTarget = controls.target.clone();
-      const startTime = performance.now();
-
-      function step(now) {
-        const elapsed = now - startTime;
-        const t = Math.min(elapsed / duration, 1);
-        const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-
-        camera.position.lerpVectors(startCamPos, targetCamPos, ease);
-        controls.target.lerpVectors(startTarget, targetCenterPos, ease);
-        camera.lookAt(controls.target);
-        controls.update();
-
-        if (t < 1) {
-          cameraAnimFrame = requestAnimationFrame(step);
-        }
-      }
-      cameraAnimFrame = requestAnimationFrame(step);
-    }
-
-    function performZoom(factor) {
-      const offset = new THREE.Vector3().subVectors(camera.position, controls.target);
-      offset.multiplyScalar(factor);
-      camera.position.addVectors(controls.target, offset);
+    function animate() {
+      requestAnimationFrame(animate);
       controls.update();
+      renderer.render(scene, camera);
     }
 
-    function setupEvents() {
-      btnZoomIn.addEventListener('click', () => performZoom(0.8));
-      btnZoomOut.addEventListener('click', () => performZoom(1.2));
-      btnShowAll.addEventListener('click', resetSelection);
-
-      btnToggleInspector.addEventListener('click', () => {
-        inspectorDrawer.classList.toggle('translate-x-full');
-      });
-      btnCloseInspector.addEventListener('click', () => {
-        inspectorDrawer.classList.add('translate-x-full');
-      });
-
-      btnCloseCard.addEventListener('click', resetSelection);
-      btnFocusPart.addEventListener('click', () => {
-        if (state.selectedItem) focusOnPiecePerspective(state.selectedItem);
-      });
-      btnIsolateGroup.addEventListener('click', () => {
-        if (state.selectedItem) isolateGroupByName(state.selectedItem.userData.rawName);
-      });
-
-      // Eventos do QR Code da Peça
-      btnQrPart.addEventListener('click', generatePartQrCode);
-      btnCloseQrModal.addEventListener('click', () => qrModal.classList.add('hidden'));
-
-      btnUpdateQr.addEventListener('click', () => {
-        state.currentModelUrl = modelUrlInput.value.trim();
-        generatePartQrCode();
-        showToast("QR Code atualizado com o link do modelo!");
-      });
-
-      btnCopyQrLink.addEventListener('click', () => {
-        const url = qrcodeContainer.dataset.url;
-        if (!url) return;
-        const tempInput = document.createElement("input");
-        document.body.appendChild(tempInput);
-        tempInput.value = url;
-        tempInput.select();
-        document.execCommand("copy");
-        document.body.removeChild(tempInput);
-        showToast("Link copiado para a área de transferência!");
-      });
-
-      btnPrintQr.addEventListener('click', () => {
-        const part = state.selectedItem ? state.selectedItem.userData : null;
-        if (!part) return;
-        const canvas = qrcodeContainer.querySelector('canvas');
-        const imgUrl = canvas ? canvas.toDataURL() : (qrcodeContainer.querySelector('img') || {}).src;
-
-        const printWin = window.open('', '', 'width=600,height=600');
-        printWin.document.write(`
-          <html>
-            <head>
-              <title>Etiqueta #${part.sortedIndex} - ${part.rawName}</title>
-              <style>
-                body { font-family: monospace; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; }
-                .box { border: 2px dashed #000; padding: 20px; border-radius: 10px; width: 280px; }
-                h2 { margin: 0 0 5px 0; font-size: 16px; word-break: break-all; }
-                p { margin: 3px 0; font-size: 12px; color: #444; }
-                img { margin: 15px auto; display: block; width: 180px; height: 180px; }
-              </style>
-            </head>
-            <body>
-              <div class="box">
-                <p><strong>MONTAGEM ACM - PEÇA #${part.sortedIndex}</strong></p>
-                <h2>${part.rawName}</h2>
-                <p>${part.dimStr}</p>
-                <p>${part.materialName}</p>
-                <img src="${imgUrl}">
-                <p style="font-size:10px;">Escaneie para visualizar a montagem 3D</p>
-              </div>
-              <script>window.onload = function() { window.print(); }<\/script>
-            </body>
-          </html>
-        `);
-        printWin.document.close();
-      });
-
-      categoryFilter.addEventListener('change', () => {
-        filterInspectorList();
-      });
-
-      inspectorSearch.addEventListener('input', filterInspectorList);
-
-      fileInput.addEventListener('change', (e) => {
-        if (e.target.files.length > 0) handleFile(e.target.files[0]);
-      });
-
-      window.addEventListener('dragover', (e) => e.preventDefault());
-      window.addEventListener('drop', (e) => {
-        e.preventDefault();
-        if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
-      });
-    }
-
-    // Verifica parâmetros de URL ao carregar (?model=... &part=...)
-    function checkUrlParameters() {
-      const params = new URLSearchParams(window.location.search);
-      const modelUrl = params.get('model');
-      const partParam = params.get('part');
-
-      if (partParam) {
-        pendingPartSelection = decodeURIComponent(partParam);
-      }
-
-      if (modelUrl) {
-        state.currentModelUrl = decodeURIComponent(modelUrl);
-        if (modelUrlInput) modelUrlInput.value = state.currentModelUrl;
-        loadRemoteModel(state.currentModelUrl);
-      }
-    }
-
-    function loadRemoteModel(url) {
-      updateStatus("Baixando modelo 3D da nuvem...");
-      showToast("Carregando projeto 3D...");
-
-      const loader = new THREE.GLTFLoader();
-      loader.load(url, (gltf) => {
-        processModel(gltf.scene || gltf.scenes[0], url.split('/').pop() || "Modelo 3D");
-      }, (xhr) => {
-        if (xhr.lengthComputable) {
-          const percent = Math.round((xhr.loaded / xhr.total) * 100);
-          updateStatus(`Baixando 3D: ${percent}%`);
-        }
-      }, (err) => {
-        console.error(err);
-        showToast("Falha ao baixar modelo do link.", true);
-        updateStatus("Erro ao abrir link do modelo.");
-      });
-    }
-
-    function handleFile(file) {
-      if (!file) return;
-      const fileName = file.name.toLowerCase();
-      updateStatus(`Carregando ${file.name}...`);
-      showToast(`Processando ${file.name}...`);
-
-      const reader = new FileReader();
-
-      if (fileName.endsWith('.glb') || fileName.endsWith('.gltf')) {
-        const loader = new THREE.GLTFLoader();
-        reader.onerror = () => showToast("Erro ao ler arquivo.", true);
-        reader.onload = function(e) {
-          try {
-            loader.parse(e.target.result, '', (gltf) => {
-              processModel(gltf.scene || gltf.scenes[0], file.name);
-            }, (err) => {
-              console.error(err);
-              showToast("Falha ao interpretar GLB/GLTF.", true);
-            });
-          } catch(err) {
-            console.error(err);
-            showToast("Erro ao abrir 3D.", true);
-          }
-        };
-        reader.readAsArrayBuffer(file);
-
-      } else if (fileName.endsWith('.obj')) {
-        const loader = new THREE.OBJLoader();
-        reader.onerror = () => showToast("Erro ao ler arquivo.", true);
-        reader.onload = function(e) {
-          try {
-            const obj = loader.parse(e.target.result);
-            processModel(obj, file.name);
-          } catch(err) {
-            console.error(err);
-            showToast("Erro ao processar OBJ.", true);
-          }
-        };
-        reader.readAsText(file);
-      } else {
-        showToast("Use arquivos .GLB, .GLTF ou .OBJ", true);
-      }
-    }
-
-    let pointerDownPos = { x: 0, y: 0 };
-    function onPointerDown(event) {
-      pointerDownPos.x = event.clientX;
-      pointerDownPos.y = event.clientY;
-
-      function onPointerUp(e) {
-        window.removeEventListener('pointerup', onPointerUp);
-        const dist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
-        if (dist > 6) return;
-
-        const rect = renderer.domElement.getBoundingClientRect();
-        mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-        mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-
-        raycaster.setFromCamera(mouse, camera);
-        const intersects = raycaster.intersectObjects(state.items, true);
-        if (intersects.length > 0) {
-          let hit = intersects[0].object;
-          if (hit && hit.userData.id) {
-            selectItemById(hit.userData.id, true);
-          }
-        }
-      }
-      window.addEventListener('pointerup', onPointerUp, { once: true });
-    }
-
-    function onDoubleClick(event) {
-      const rect = renderer.domElement.getBoundingClientRect();
-      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-
-      raycaster.setFromCamera(mouse, camera);
-      const intersects = raycaster.intersectObjects(state.items, true);
-      if (intersects.length > 0) {
-        let hit = intersects[0].object;
-        if (hit) focusOnPiecePerspective(hit);
-      } else {
-        resetSelection();
-      }
-    }
-
-    let toastTimer = null;
-    function showToast(msg, isError = false) {
-      if (toastTimer) clearTimeout(toastTimer);
-      toastMsg.innerText = msg;
-      const icon = document.getElementById('toast-icon');
-      if (isError) {
-        icon.className = "fa-solid fa-triangle-exclamation text-rose-400";
-      } else {
-        icon.className = "fa-solid fa-circle-check text-emerald-400";
-      }
-      toast.classList.remove('-translate-y-10', 'opacity-0');
-      toast.classList.add('translate-y-0', 'opacity-100');
-      toastTimer = setTimeout(() => {
-        toast.classList.add('-translate-y-10', 'opacity-0');
-        toast.classList.remove('translate-y-0', 'opacity-100');
-      }, 3500);
-    }
-
-    function updateStatus(text) {
-      if (statusIndicator) statusIndicator.innerText = text;
-    }
-
-    window.onload = function() {
-      initThree();
-      checkUrlParameters();
-    };
+    init();
   </script>
 </body>
 </html>
