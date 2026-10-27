@@ -460,3 +460,53 @@
     }
 
     function resetCamera() {
+      if (!modelRoot) return;
+      const box = new THREE.Box3().setFromObject(modelRoot);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z);
+
+      camera.position.set(center.x + maxDim * 1.3, center.y + maxDim * 0.9, center.z + maxDim * 1.3);
+      controls.target.copy(center);
+      controls.update();
+    }
+
+    function zoomIn() { camera.position.multiplyScalar(0.85); controls.update(); }
+    function zoomOut() { camera.position.multiplyScalar(1.15); controls.update(); }
+
+    function openQrModal() {
+      if (!selectedMesh) return;
+      const modal = document.getElementById('qr-modal');
+      const box = document.getElementById('qr-box');
+      box.innerHTML = "";
+
+      const baseUrl = window.location.origin + window.location.pathname;
+      const directUrl = `${baseUrl}?model=${encodeURIComponent(currentModelUrl)}&part=${encodeURIComponent(selectedMesh.name)}`;
+
+      new QRCode(box, {
+        text: directUrl,
+        width: 180,
+        height: 180
+      });
+
+      document.getElementById('qr-title').innerText = selectedMesh.name;
+      document.getElementById('qr-sub').innerText = document.getElementById('card-dims').innerText;
+      modal.style.display = 'flex';
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    init();
+  </script>
+</body>
+</html>
