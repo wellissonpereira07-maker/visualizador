@@ -3,7 +3,6 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' blob: data:; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' blob: data:;">
   <title>Inspetor de Montagem 3D</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
@@ -300,26 +299,9 @@
       animate();
     }
 
-    function sanitizeModelUrl(url) {
-      if (!url) return null;
-      try {
-        const parsed = new URL(url, window.location.href);
-        if (parsed.origin === window.location.origin && /\.(glb|gltf)$/i.test(parsed.pathname)) {
-          return parsed.pathname.split('/').pop();
-        }
-      } catch (e) {
-        return null;
-      }
-      return null;
-    }
-
     function safeDecode(str) {
       if (!str) return "";
-      try {
-        return decodeURIComponent(str);
-      } catch (e) {
-        return str;
-      }
+      try { return decodeURIComponent(str); } catch (e) { return str; }
     }
 
     function checkUrlParams() {
@@ -327,11 +309,8 @@
       const m = p.get('model');
       const part = p.get('part');
       if (m) {
-        const sanitized = sanitizeModelUrl(m);
-        if (sanitized) {
-          currentModelUrl = sanitized;
-          document.getElementById('model-label').textContent = sanitized;
-        }
+        currentModelUrl = m.split('/').pop();
+        document.getElementById('model-label').textContent = currentModelUrl;
       }
       loadModelFromUrl(currentModelUrl, safeDecode(part));
     }
@@ -340,7 +319,7 @@
       const overlay = document.getElementById('loading-overlay');
       document.getElementById('loading-spinner').style.display = 'none';
       document.getElementById('loading-txt').textContent = msg;
-      setTimeout(() => { overlay.style.display = 'none'; }, 2500);
+      setTimeout(() => { overlay.style.display = 'none'; }, 1800);
     }
 
     function loadModelFromUrl(url, targetPartName) {
@@ -354,7 +333,7 @@
         if (targetPartName) selectPieceByName(targetPartName);
         overlay.style.display = 'none';
       }, undefined, () => {
-        showErrorState('Aguardando seleção de arquivo (.glb)');
+        showErrorState('Clique em "Abrir Arquivo" para carregar o modelo .glb');
       });
     }
 
@@ -366,7 +345,7 @@
 
       const overlay = document.getElementById('loading-overlay');
       document.getElementById('loading-spinner').style.display = 'block';
-      document.getElementById('loading-txt').textContent = 'A processar arquivo...';
+      document.getElementById('loading-txt').textContent = 'A processar geometria...';
       overlay.style.display = 'flex';
 
       const reader = new FileReader();
@@ -386,9 +365,7 @@
     function disposeMaterial(mat) {
       if (!mat || mat === highlightMat) return;
       Object.keys(mat).forEach(key => {
-        if (mat[key] && mat[key].isTexture) {
-          mat[key].dispose();
-        }
+        if (mat[key] && mat[key].isTexture) mat[key].dispose();
       });
       mat.dispose();
     }
@@ -398,11 +375,8 @@
         if (child.isMesh || child.isLineSegments) {
           if (child.geometry) child.geometry.dispose();
           if (child.material) {
-            if (Array.isArray(child.material)) {
-              child.material.forEach(disposeMaterial);
-            } else {
-              disposeMaterial(child.material);
-            }
+            if (Array.isArray(child.material)) child.material.forEach(disposeMaterial);
+            else disposeMaterial(child.material);
           }
         }
       });
@@ -419,102 +393,119 @@
       return mesh.name || `Peça_${index}`;
     }
 
-    function computeOrientedDimensions(posAttr, scaleVec) {
-      const count = posAttr.count;
-      if (count < 3) return [0, 0, 0];
+    // Extrai estritamente os vértices pertencentes a ESTA peça e calcula OBB + Centro Real
+    function analyzeIsolatedPieceGeometry(mesh) {
+      let geom = mesh.geometry;
+      if (!geom || !geom.attributes || !geom.attributes.position) {
+        return { dimsText: "-- x -- x -- mm", centerWorld: new THREE.Vector3(), maxDimWorld: 1 };
+      }
 
-      const sx = scaleVec.x, sy = scaleVec.y, sz = scaleVec.z;
-      const vA = new THREE.Vector3(), vB = new THREE.Vector3(), vC = new THREE.Vector3();
-      const cb = new THREE.Vector3(), ab = new THREE.Vector3();
+      // A CHAVE DO PROBLEMA: Desvincular a peça do Buffer Global do prédio!
+      if (geom.index) {
+        geom = geom.toNonIndexed();
+        mesh.geometry = geom;
+      }
 
+      const pos = geom.attributes.position;
+      const count = pos.count;
+      if (count === 0) {
+        return { dimsText: "-- x -- x -- mm", centerWorld: new THREE.Vector3(), maxDimWorld: 1 };
+      }
+
+      // Obter todos os pontos desta peça já no espaço real do mundo (com escala e rotação)
+      const worldPts = [];
+      const minW = new THREE.Vector3(Infinity, Infinity, Infinity);
+      const maxW = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
+
+      for (let i = 0; i < count; i++) {
+        const v = new THREE.Vector3(pos.getX(i), pos.getY(i), pos.getZ(i)).applyMatrix4(mesh.matrixWorld);
+        worldPts.push(v);
+        minW.min(v);
+        maxW.max(v);
+      }
+
+      const centerWorld = new THREE.Vector3().addVectors(minW, maxW).multiplyScalar(0.5);
+      const sizeW = new THREE.Vector3().subVectors(maxW, minW);
+      const maxDimWorld = Math.max(sizeW.x, sizeW.y, sizeW.z, 0.01);
+
+      // 1. Calcular sistema de eixos alinhado à maior face da chapa (OBB preciso para chapas inclinadas/rotacionadas)
       let bestNormal = new THREE.Vector3(0, 0, 1);
-      let bestEdgeDir = new THREE.Vector3(1, 0, 0);
-      let maxArea = -1;
+      let bestEdge1 = new THREE.Vector3(1, 0, 0);
+      let maxTriArea = -1;
 
-      const step = Math.max(1, Math.floor((count / 3) / 150)) * 3;
-      for (let i = 0; i <= count - 3; i += step) {
-        vA.set(posAttr.getX(i) * sx, posAttr.getY(i) * sy, posAttr.getZ(i) * sz);
-        vB.set(posAttr.getX(i+1) * sx, posAttr.getY(i+1) * sy, posAttr.getZ(i+1) * sz);
-        vC.set(posAttr.getX(i+2) * sx, posAttr.getY(i+2) * sy, posAttr.getZ(i+2) * sz);
+      const vA = new THREE.Vector3(), vB = new THREE.Vector3(), vC = new THREE.Vector3();
+      const ab = new THREE.Vector3(), ac = new THREE.Vector3(), cross = new THREE.Vector3();
 
-        cb.subVectors(vC, vB);
-        ab.subVectors(vA, vB);
-        cb.cross(ab);
-        const areaSq = cb.lengthSq();
-        if (areaSq > maxArea && areaSq > 1e-12) {
-          maxArea = areaSq;
-          bestNormal.copy(cb).normalize();
-          bestEdgeDir.subVectors(vB, vA).normalize();
+      for (let i = 0; i <= count - 3; i += 3) {
+        vA.copy(worldPts[i]);
+        vB.copy(worldPts[i + 1]);
+        vC.copy(worldPts[i + 2]);
+
+        ab.subVectors(vB, vA);
+        ac.subVectors(vC, vA);
+        cross.crossVectors(ab, ac);
+        const areaSq = cross.lengthSq();
+
+        if (areaSq > maxTriArea && areaSq > 1e-10) {
+          maxTriArea = areaSq;
+          bestNormal.copy(cross).normalize();
+
+          // Achar a aresta que NÃO é a hipotenusa do triângulo retângulo
+          const dAB = vA.distanceToSquared(vB);
+          const dBC = vB.distanceToSquared(vC);
+          const dCA = vC.distanceToSquared(vA);
+
+          if (dAB >= dBC && dAB >= dCA) {
+            bestEdge1.subVectors(vC, vB).normalize(); // dAB é hipotenusa, usa cateto BC
+          } else if (dBC >= dAB && dBC >= dCA) {
+            bestEdge1.subVectors(vB, vA).normalize(); // dBC é hipotenusa, usa cateto AB
+          } else {
+            bestEdge1.subVectors(vB, vA).normalize(); // dCA é hipotenusa, usa cateto AB
+          }
         }
       }
 
       const axisZ = bestNormal;
-      const axisX = bestEdgeDir;
+      const axisX = bestEdge1;
       const axisY = new THREE.Vector3().crossVectors(axisZ, axisX).normalize();
 
       let minX = Infinity, maxX = -Infinity;
       let minY = Infinity, maxY = -Infinity;
       let minZ = Infinity, maxZ = -Infinity;
 
-      for (let i = 0; i < count; i++) {
-        vA.set(posAttr.getX(i) * sx, posAttr.getY(i) * sy, posAttr.getZ(i) * sz);
-        const px = vA.dot(axisX);
-        const py = vA.dot(axisY);
-        const pz = vA.dot(axisZ);
+      for (let i = 0; i < worldPts.length; i++) {
+        const p = worldPts[i];
+        const px = p.dot(axisX);
+        const py = p.dot(axisY);
+        const pz = p.dot(axisZ);
         if (px < minX) minX = px; if (px > maxX) maxX = px;
         if (py < minY) minY = py; if (py > maxY) maxY = py;
         if (pz < minZ) minZ = pz; if (pz > maxZ) maxZ = pz;
       }
 
-      return [maxX - minX, maxY - minY, maxZ - minZ];
-    }
+      const obbDims = [
+        (maxX - minX) * globalScaleFactor,
+        (maxY - minY) * globalScaleFactor,
+        (maxZ - minZ) * globalScaleFactor
+      ].sort((a, b) => b - a);
 
-    function calculateRealPieceDimensions(mesh) {
-      if (!mesh || !mesh.geometry || !mesh.geometry.attributes || !mesh.geometry.attributes.position) {
-        return "-- x -- x -- mm";
-      }
+      const aabbDims = [
+        sizeW.x * globalScaleFactor,
+        sizeW.y * globalScaleFactor,
+        sizeW.z * globalScaleFactor
+      ].sort((a, b) => b - a);
 
-      const displayName = mesh.userData.displayName || mesh.name || "";
-      const match = displayName.match(/(\d+[\.,]?\d*)\s*[xX*]\s*(\d+[\.,]?\d*)(?:\s*[xX*]\s*(\d+[\.,]?\d*))?/);
-      if (match && match[1] && match[2]) {
-        const v1 = parseFloat(match[1].replace(',', '.'));
-        const v2 = parseFloat(match[2].replace(',', '.'));
-        const v3 = match[3] ? parseFloat(match[3].replace(',', '.')) : 3.0;
-        const arr = [v1, v2, v3].sort((a, b) => b - a);
-        return `${Math.round(arr[0])} x ${Math.round(arr[1])} x ${arr[2] < 10 ? arr[2].toFixed(1) : Math.round(arr[2])} mm`;
-      }
+      // Escolhe a caixa de menor volume (se a peça for ortogonal, AABB é exato; se rotacionada, OBB é menor e exato)
+      const volOBB = obbDims[0] * obbDims[1] * Math.max(obbDims[2], 1);
+      const volAABB = aabbDims[0] * aabbDims[1] * Math.max(aabbDims[2], 1);
+      const finalDims = volOBB < volAABB ? obbDims : aabbDims;
 
-      const geom = mesh.geometry;
-      if (!geom.boundingBox) geom.computeBoundingBox();
-      const b = geom.boundingBox;
-      if (!b) return "-- x -- x -- mm";
-
-      const worldScale = new THREE.Vector3();
-      mesh.matrixWorld.decompose(new THREE.Vector3(), new THREE.Quaternion(), worldScale);
-      const sx = Math.abs(worldScale.x) || 1;
-      const sy = Math.abs(worldScale.y) || 1;
-      const sz = Math.abs(worldScale.z) || 1;
-
-      const dx = Math.abs(b.max.x - b.min.x) * sx;
-      const dy = Math.abs(b.max.y - b.min.y) * sy;
-      const dz = Math.abs(b.max.z - b.min.z) * sz;
-
-      let dims = [dx * globalScaleFactor, dy * globalScaleFactor, dz * globalScaleFactor].sort((a, b) => b - a);
-      if (dims[0] === 0) return "-- x -- x -- mm";
-
-      // Se a menor dimensão do AABB for maior que 15mm, a chapa pode estar inclinada nos vértices locais
-      if (dims[2] > 15) {
-        const obb = computeOrientedDimensions(geom.attributes.position, new THREE.Vector3(sx, sy, sz));
-        const obbDims = [obb[0] * globalScaleFactor, obb[1] * globalScaleFactor, obb[2] * globalScaleFactor].sort((a, b) => b - a);
-        if (obbDims[0] > 0 && obbDims[2] < dims[2]) {
-          dims = obbDims;
-        }
-      }
-
-      let espessura = dims[2];
+      let espessura = finalDims[2];
       if (espessura < 0.5) espessura = 3.0;
 
-      return `${Math.round(dims[0])} x ${Math.round(dims[1])} x ${espessura < 10 ? espessura.toFixed(1) : Math.round(espessura)} mm`;
+      const dimsText = `${Math.round(finalDims[0])} x ${Math.round(finalDims[1])} x ${espessura < 10 ? espessura.toFixed(1) : Math.round(espessura)} mm`;
+
+      return { dimsText, centerWorld, maxDimWorld };
     }
 
     function setupLoadedModel(root) {
@@ -531,9 +522,11 @@
       scene.add(modelRoot);
       modelRoot.updateMatrixWorld(true);
 
+      // Calcular a escala global da obra pelos pontos reais
       const modelBox = new THREE.Box3().setFromObject(modelRoot);
       const modelSize = modelBox.getSize(new THREE.Vector3());
       const maxExtent = Math.max(modelSize.x, modelSize.y, modelSize.z);
+      // Se o prédio inteiro mede ~15.28, está em metros (fator 1000). Se mede ~15284, já está em mm (fator 1).
       globalScaleFactor = maxExtent > 100 ? 1 : 1000;
 
       const usedNames = new Map();
@@ -553,9 +546,14 @@
             usedNames.set(baseName, 1);
           }
           obj.userData.displayName = baseName;
-          obj.userData.dims = calculateRealPieceDimensions(obj);
 
-          const edges = new THREE.EdgesGeometry(obj.geometry, 30);
+          // Analisa a peça isolando apenas os triângulos dela!
+          const info = analyzeIsolatedPieceGeometry(obj);
+          obj.userData.dims = info.dimsText;
+          obj.userData.centerWorld = info.centerWorld;
+          obj.userData.maxDimWorld = info.maxDimWorld;
+
+          const edges = new THREE.EdgesGeometry(obj.geometry, 28);
           const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x1e293b, linewidth: 1 }));
           obj.add(line);
         }
@@ -612,7 +610,7 @@
 
       const idx = pieces.indexOf(mesh) + 1;
       const name = mesh.userData.displayName || `Peça #${idx}`;
-      const dims = mesh.userData.dims || calculateRealPieceDimensions(mesh);
+      const dims = mesh.userData.dims || "-- x -- x -- mm";
 
       document.getElementById('card-badge').textContent = `#${idx}`;
       document.getElementById('card-title').textContent = name;
@@ -706,13 +704,11 @@
     }
 
     function focusCurrentPiece() {
-      if (!selectedMesh) return;
-      const box = new THREE.Box3().setFromObject(selectedMesh);
-      const center = box.getCenter(new THREE.Vector3());
-      const size = box.getSize(new THREE.Vector3());
-      const maxDim = Math.max(size.x, size.y, size.z, 0.1);
+      if (!selectedMesh || !selectedMesh.userData.centerWorld) return;
+      const center = selectedMesh.userData.centerWorld;
+      const maxDim = Math.max(selectedMesh.userData.maxDimWorld || 1, 0.2);
 
-      const offset = new THREE.Vector3(1, 0.8, 1).normalize().multiplyScalar(maxDim * 2.2);
+      const offset = new THREE.Vector3(1, 0.7, 1).normalize().multiplyScalar(maxDim * 2.5);
       camera.position.copy(center).add(offset);
       controls.target.copy(center);
       controls.update();
@@ -768,7 +764,7 @@
       }
 
       document.getElementById('qr-title').textContent = partName;
-      document.getElementById('qr-sub').textContent = selectedMesh.userData.dims || document.getElementById('card-dims').textContent;
+      document.getElementById('qr-sub').textContent = selectedMesh.userData.dims || "-- x -- x -- mm";
       modal.style.display = 'flex';
     }
 
